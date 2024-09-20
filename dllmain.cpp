@@ -2,8 +2,16 @@
 #include <cstdio>
 #include <Windows.h>
 #include <iostream>
-#include <mono/jit/jit.h>
 using namespace std;
+
+// Added to remove need for mono headers
+typedef VOID MonoObject;
+typedef VOID MonoDomain;
+typedef VOID MonoAssembly;
+typedef VOID MonoImage;
+typedef VOID MonoClass;
+typedef VOID MonoMethod;
+typedef VOID MonoImageOpenStatus;
 
 // typedefs and fields for required mono functions
 typedef void(__cdecl* t_mono_thread_attach)(MonoDomain*);
