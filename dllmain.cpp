@@ -93,7 +93,7 @@ void Init() {
     cheatImage = fnGetImage(cheatAssembly);
     fnGetClassFromName = (t_mono_class_from_name)GetProcAddress(monoModule, "mono_class_from_name"); // This simply gets the class from our assembly image
     MonoClass* cheatClass;
-    cheatClass = fnGetClassFromName(cheatImage, payloadNamespace.c_str(), payloadClass.c_str();
+    cheatClass = fnGetClassFromName(cheatImage, payloadNamespace.c_str(), payloadClass.c_str());
     fnGetMethodFromName = (t_mono_class_get_method_from_name)GetProcAddress(monoModule, "mono_lass_get_method_from_name"); // this simply gets a method from our assembly image
     MonoMethod* cheatMethod;
     cheatMethod = fnGetClassFromName(cheatClass, payloadMainFunction.c_str(), 0);
