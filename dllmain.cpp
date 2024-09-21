@@ -1,53 +1,51 @@
 #include "pch.h"
-#include <cstdio>
 #include <Windows.h>
+#include <cstdio>
 #include <iostream>
 using namespace std;
 
-// Added to remove need for mono headers
-typedef VOID MonoObject;
+// Mono defines to avoid needing to import mono headers
+// We use VOID instead of void as VOID is specifically for typedef in windows investigate using normal void
+// This is essentially just making these names into Void pointers
 typedef VOID MonoDomain;
 typedef VOID MonoAssembly;
 typedef VOID MonoImage;
 typedef VOID MonoClass;
 typedef VOID MonoMethod;
+typedef VOID MonoImage;
 typedef VOID MonoImageOpenStatus;
+typedef VOID MonoObject;
 
-// typedefs and fields for required mono functions
+// Setting up our functions for mono
+// basically we are making typedefs that match the function within the official mono headers
+// Here is the official def for thread attach within the mono jit.h header file
+// MonoDomain* mono_jit_thread_attach (MonoDomain *domain);
+// You can see all we are doing is recreating its signature (Matching its type parameters arguements etc)
+// Note a key difference with thread attach specifically is we call it a void typedef. We do this as we do not need to do anything with the return value with the rest we do need the return value so we match the return value type
 typedef void(__cdecl* t_mono_thread_attach)(MonoDomain*);
 t_mono_thread_attach fnThreadAttach;
-typedef  MonoDomain* (__cdecl* t_mono_get_root_domain)(void);
+typedef MonoDomain* (__cdecl* t_mono_get_root_domain)(void);
 t_mono_get_root_domain fnGetRootDomain;
-typedef MonoAssembly* (__cdecl* t_mono_assembly_open)(const char*, MonoImageOpenStatus*);
-t_mono_assembly_open fnAssemblyOpen;
-typedef MonoImage* (__cdecl* t_mono_assembly_get_image)(MonoAssembly*);
-t_mono_assembly_get_image fnAssemblyGetImage;
-typedef MonoClass* (__cdecl* t_mono_class_from_name)(MonoImage*, const char*, const char*);
-t_mono_class_from_name fnClassFromName;
-typedef MonoMethod* (__cdecl* t_mono_class_get_method_from_name)(MonoClass*, const char*, int);
-t_mono_class_get_method_from_name fnMethodFromName;
-typedef MonoObject* (__cdecl* t_mono_runtime_invoke)(MonoMethod*, void*, void**, MonoObject**);
-t_mono_runtime_invoke fnRuntimeInvoke;
 typedef const char* (__cdecl* t_mono_assembly_getrootdir)(void);
 t_mono_assembly_getrootdir fnGetRootDir;
-void initMonoFunctions(HMODULE mono) {
-    fnThreadAttach = (t_mono_thread_attach)GetProcAddress(mono, "mono_thread_attach");
-    fnGetRootDomain = (t_mono_get_root_domain)GetProcAddress(mono, "mono_get_root_domain");
-    fnAssemblyOpen = (t_mono_assembly_open)GetProcAddress(mono, "mono_assembly_open");
-    fnAssemblyGetImage = (t_mono_assembly_get_image)GetProcAddress(mono, "mono_assembly_get_image");
-    fnClassFromName = (t_mono_class_from_name)GetProcAddress(mono, "mono_class_from_name");
-    fnMethodFromName = (t_mono_class_get_method_from_name)GetProcAddress(mono, "mono_class_get_method_from_name");
-    fnRuntimeInvoke = (t_mono_runtime_invoke)GetProcAddress(mono, "mono_runtime_invoke");
-    fnGetRootDir = (t_mono_assembly_getrootdir)GetProcAddress(mono, "mono_assembly_getrootdir");
-}
+typedef MonoAssembly* (__cdecl* t_mono_assembly_open)(const char*, MonoImageOpenStatus*);
+t_mono_assembly_open fnAssemblyOpen;
+typedef  MonoImage* (__cdecl* t_mono_assembly_get_image)(MonoAssembly*);
+t_mono_assembly_get_image fnGetImage;
+typedef MonoClass* (__cdecl* t_mono_class_from_name)(MonoImage*, const char*, const char*);
+t_mono_class_from_name fnGetClassFromName;
+typedef MonoMethod* (__cdecl* t_mono_class_get_method_from_name)(MonoImage*, const char*, int);
+t_mono_class_get_method_from_name fnGetMethodFromName;
+typedef MonoObject* (__cdecl* t_mono_runtime_invoke)(MonoMethod*, void*, void**, MonoObject**);
+t_mono_runtime_invoke fnRuntimeInvoke;
 
 void Init() {
-    // Allocating our console (Using this method of redirecting both otherwise cin fails)
+    // Allocation a console for debugging
     AllocConsole();
-    FILE* stream;
-    freopen_s(&stream, "CONOUT$", "w", stdout); // Redirect stdout
-    freopen_s(&stream, "CONIN$", "r", stdin);  // Redirect stdin
-    cout.clear(); // Clear the cout stream state
+    FILE* console;
+    freopen_s(&console, "CONOUT$", "w", stdout);
+    freopen_s(&console, "CONIN$", "r", stdin);
+    cout.clear();
 
     // Getting the information of the dll we want to inject
     string dllName;
@@ -64,48 +62,48 @@ void Init() {
     cout << "\nInput the name of the main function in the loader class: \n";
     cin >> payloadMainFunction;
     cout << "\n";
-    
-    // Injecting our mono DLL
-    // Credit: https://www.unknowncheats.me/forum/unity/268053-mono-unity-injector.html
-    #define MONO_DLL L"mono.dll"
 
-    std::string assemblyDir;
+    // Getting our mono.dll module
+    HMODULE monoModule = LoadLibraryW(L"mono.dll"); // Note we add L here to make our string coptabile with the character encoding of LoadLibraryW
+    // This function is loading the mono.dll into our address space see: https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryw 
+    // Allowing us to then retrieve mono functions from the .dll using GetProcAddress(monoModule, "whateverMonoFunction")
+    fnThreadAttach = (t_mono_thread_attach)GetProcAddress(monoModule, "mono_thread_attach"); // This is retreiving the function mono_thread_attach from the mono.dll file, to find more information on mono functions see: https://www.mono-project.com/docs/advanced/embedding/
+    // In short what this does is register a calling thread (our cheat dll in this case) within the Mono runtime allowing to run code
+    fnGetRootDomain = (t_mono_get_root_domain)GetProcAddress(monoModule, "mono_get_root_domain");
+    // This functions returns a pointer to the root domain of the mono runtime in our process
 
-    HMODULE mono;
+    // Attaching our dll into mono runtime
     MonoDomain* domain;
-    MonoAssembly* assembly;
-    MonoImage* image;
-    MonoClass* klass;
-    MonoMethod* method;
-
-    /* grab the mono dll module */
-    mono = LoadLibraryW(MONO_DLL);
-    /* initialize mono functions */
-    initMonoFunctions(mono);
-    /* grab the root domain */
-    domain = fnGetRootDomain();
-    fnThreadAttach(domain);
-    /* Grab our root directory*/
+    domain = fnGetRootDomain(); // Getting our root domain
+    fnThreadAttach(domain); // Attaching this .dll to mono runtime
+    
+    // Getting the directory to our cheat .dll file
+    string assemblyDir;
+    fnGetRootDir = (t_mono_assembly_getrootdir)GetProcAddress(monoModule, "mono_assembly_getrootdir"); // This function will return the root directory of the assembly, aka in our case the Managed folder where the games .dll files are stored which also contains our cheat .dll file
     assemblyDir.append(fnGetRootDir());
-    assemblyDir.append("/" + dllName);
-    /* open payload assembly */
-    assembly = fnAssemblyOpen(assemblyDir.c_str(), NULL);
-    if (assembly == NULL) return;
-    /* get image from assembly */
-    image = fnAssemblyGetImage(assembly);
-    if (image == NULL) return;
-    /* grab the class */
-    klass = fnClassFromName(image, payloadNamespace.c_str(), payloadClass.c_str());
-    if (klass == NULL) return;
-    /* grab the hack entrypoint */
-    method = fnMethodFromName(klass, payloadMainFunction.c_str(), 0);
-    if (method == NULL) return;
-    /* call our entrypoint */
-    fnRuntimeInvoke(method, NULL, NULL, NULL);
-    cout << "Cheat injected enjoy your game!";
+    assemblyDir.append("/" + dllName); // CHANGE
+
+    // Loading our cheat assembly (.dll file) into the mono runtime allowing us to use it in our game. This funcction returns a pointer to our assembly which we can use
+    MonoAssembly* cheatAssembly;
+    cheatAssembly = fnAssemblyOpen(assemblyDir.c_str(), NULL); // We pass null as its not required
+
+    // Getting our class and method from our assembly
+    fnGetImage = (t_mono_assembly_get_image)GetProcAddress(monoModule, "mono_assembly_get_image"); // This gets an image (metadata) about the assembly we loaded. Allowing us to see data within the assembly like types methods fields classes etc
+    MonoImage* cheatImage;
+    cheatImage = fnGetImage(cheatAssembly);
+    fnGetClassFromName = (t_mono_class_from_name)GetProcAddress(monoModule, "mono_class_from_name"); // This simply gets the class from our assembly image
+    MonoClass* cheatClass;
+    cheatClass = fnGetClassFromName(cheatImage, payloadNamespace.c_str(), payloadClass.c_str();
+    fnGetMethodFromName = (t_mono_class_get_method_from_name)GetProcAddress(monoModule, "mono_lass_get_method_from_name"); // this simply gets a method from our assembly image
+    MonoMethod* cheatMethod;
+    cheatMethod = fnGetClassFromName(cheatClass, payloadMainFunction.c_str(), 0);
+
+    // Invoking our method (basically calling our function)
+    fnRuntimeInvoke = (t_mono_runtime_invoke)GetProcAddress(monoModule, "mono_runtime_invoke");
+    fnRuntimeInvoke(cheatMethod, NULL, NULL, NULL);
 }
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
 {
     switch (ul_reason_for_call)
     {
@@ -119,4 +117,3 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     }
     return TRUE;
 }
-
