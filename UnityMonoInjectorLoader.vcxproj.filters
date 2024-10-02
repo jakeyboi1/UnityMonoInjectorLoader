@@ -13,12 +13,21 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\IL2CPP">
+      <UniqueIdentifier>{5b493f48-5710-48e7-b1d1-ac68026f6c3f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="pch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="IL2CPPTypes.hpp">
+      <Filter>Source Files\IL2CPP</Filter>
+    </ClInclude>
+    <ClInclude Include="IL2CPP.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
